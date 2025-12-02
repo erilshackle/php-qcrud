@@ -382,6 +382,7 @@ class CRUD
     {
         self::$onTransaction = false;
         $db = self::$pdo;
+        $result = false;
 
         try {
             $db->beginTransaction();
@@ -389,15 +390,14 @@ class CRUD
                 $callback();
             }
             $db->commit();
-            self::$transactionsCallbacks = [];
-            return true;
+            $result = true;
         } catch (PDOException $e) {
             $db->rollBack();
             $exception = $e;
             Logger::error("Transaction failed", $e);
         }
         self::$transactionsCallbacks = [];
-        return false;
+        return $result;
     }
 
     /**
