@@ -1,0 +1,31 @@
+{
+    "name": "eril/crud",
+    "description": "Advanced CRUD operations",
+    "keywords": ["crud", "query-builder", "database", "pdo", "orm", "model"],
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Eril TS Carvalho",
+            "email": "erilandocarvalho@gmail.com"
+        }
+    ],
+    "require": {
+        "php": "^8.0",
+        "ext-pdo": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Eril\\CRUD\\": "src/"
+        },
+        "files": ["src/helpers.php"]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Eril\\CRUD\\Tests\\": "tests/"
+        }
+    }
+}

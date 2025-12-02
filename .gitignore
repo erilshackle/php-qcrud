@@ -1,0 +1,38 @@
+### Dependências ###
+/vendor/
+/composer.lock
+
+### IDE ###
+/.idea/
+/.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+### Logs ###
+/logs/*
+*.log
+
+# Mantém diretório vazio de logs
+/logs/*
+!/logs/.gitkeep
+!.gitkeep
+
+### Testes ###
+/phpunit.xml
+/phpunit.xml.dist
+/.phpunit.result.cache
+/coverage/
+
+### macOS ###
+.DS_Store
+.AppleDouble
+.LSOverride
+
+### Cache ###
+.cache/
+
+# PHPUnit cache
+.phpunit.cache/
