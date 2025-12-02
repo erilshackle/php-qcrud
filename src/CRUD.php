@@ -2,11 +2,11 @@
 
 namespace Eril\CRUD;
 
+use Eril\CRUD\Exceptions\CrudException;
+use Eril\CRUD\Logging\Logger;
+use Exception;
 use PDO;
 use PDOException;
-use Exception;
-use InvalidArgumentException;
-use RuntimeException;
 
 /**
  * CRUD Class
@@ -41,6 +41,26 @@ class CRUD
     private static bool $onTransaction = false;
 
     /**
+     * Initialize error logging system
+     * Call this method during bootstrap if you want to customize logging
+     * 
+     * @param array{
+     *  log_dir:string, log_file:string, max_size:int, max_days:int, enabled:bool
+     * } $config Logger configuration
+     * 
+     * - `log_dir`  :   where to output logs (/logs)
+     * - `log_file` :   the logs file name (crud-errors)
+     * - `max_size` :   limit size (5MB)
+     * - `max_days` :   limit days (7 days retentio)
+     * - `enabled`  :   enable or disable logs (bool)
+     * @return void
+     */
+    public static function initLogging(array $config = []): void
+    {
+        Logger::init($config);
+    }
+
+    /**
      * Registers how the PDO connection should be created or used by the class.
      *
      * This method supports two usage modes:
@@ -57,7 +77,7 @@ class CRUD
      *
      * @param PDO|array $connection Either a PDO instance or callback array
      * @return void
-     * @throws Exception If connection cannot be established
+     * @throws CrudException If connection cannot be established
      */
     public static function registerConnection(PDO|array $connection): void
     {
@@ -73,7 +93,7 @@ class CRUD
      *
      * @param PDO|null $pdo Optional PDO instance to use directly
      * @return void
-     * @throws Exception If connection cannot be established
+     * @throws CrudException If connection cannot be established
      * @internal Used internally to manage connection lifecycle
      */
     protected static function useConnection(?PDO $pdo = null): void
@@ -86,8 +106,8 @@ class CRUD
                 self::$register = null;
             }
         } catch (Exception $e) {
-            error_log($e->getMessage());
-            throw new Exception("Unknown connection error: " . $e->getMessage());
+            Logger::error("Connection error", $e);
+            throw new CrudException("Unknown connection error: " . $e->getMessage());
         }
     }
 
@@ -97,7 +117,7 @@ class CRUD
      * @param string $table Database table name
      * @param string $primaryKey Primary key column name (default: 'id')
      * @param PDO|null $pdo Optional PDO instance (uses registered connection if null)
-     * @throws Exception If no database connection is available
+     * @throws CrudException If no database connection is available
      */
     public function __construct(string $table, string $primaryKey = 'id', ?PDO $pdo = null)
     {
@@ -107,11 +127,14 @@ class CRUD
             self::useConnection($pdo);
 
             if (self::$pdo === null) {
-                throw new Exception("CRUD: No database connection available");
+                throw new CrudException("CRUD: No database connection available");
             }
         } catch (PDOException $exception) {
-            error_log($exception->getMessage());
+            Logger::error("PDO Exception in constructor", $exception);
             throw $exception;
+        } catch (Exception $e) {
+            Logger::error("General Exception in constructor", $e);
+            throw $e;
         }
     }
 
@@ -141,7 +164,37 @@ class CRUD
         return new self($table, $primaryKey, null);
     }
 
-    
+    /**
+     * Creates a QueryCrud instance for advanced query building.
+     *
+     * @param string $table Table name (can include alias)
+     * @param string|null $as Optional table alias
+     * @return QueryCrud Query builder instance
+     * @throws CrudException If no database connection is available
+     * 
+     * @example
+     * $query = CRUD::query('users u')
+     *     ->select('u.*, p.name')
+     *     ->joinInner(['profiles', 'p'], 'u.profile_id = p.id');
+     */
+    public static function query(string $table, ?string $as = null): QueryCrud
+    {
+        self::useConnection();
+        if (!self::$pdo) {
+            Logger::error("No database connection available for query");
+            throw new CrudException("CRUD::query(): No database connection available");
+        }
+
+        $table = $as === null ? $table : "$table AS $as";
+        $table = preg_replace('/(.+)\s*AS\s+(.+)/', '$1 $2', $table);
+
+        try {
+            return new QueryCrud($table, self::$pdo);
+        } catch (Exception $e) {
+            Logger::error("Failed to create QueryCrud", $e);
+            throw new CrudException("Failed to create QueryCrud: " . $e->getMessage(), 0, $e);
+        }
+    }
 
     /**
      * Creates a new record in the database.
@@ -164,7 +217,7 @@ class CRUD
             $result = $this->executeSQL($sql, array_values($data));
             return $result > 0 ? (int) self::$pdo->lastInsertId() : false;
         } catch (Exception $e) {
-            error_log($e->getMessage());
+            Logger::error("CREATE failed on table: {$this->table}", $e);
             return false;
         }
     }
@@ -196,7 +249,7 @@ class CRUD
             $id = is_array($id) ? $id[$this->pk] ?? 0 : $id;
             return $this->querySQL("SELECT $select FROM {$this->table} WHERE {$this->pk}=? LIMIT 1", [$id]) ?: [];
         } catch (Exception $e) {
-            error_log($e->getMessage());
+            Logger::error("READ failed on table: {$this->table}", $e);
             return [];
         }
     }
@@ -226,7 +279,7 @@ class CRUD
             $params[] = $id;
             return $this->executeSQL($sql, $params);
         } catch (Exception $e) {
-            error_log($e->getMessage());
+            Logger::error("UPDATE failed on table: {$this->table}", $e);
             return false;
         }
     }
@@ -247,7 +300,7 @@ class CRUD
             $sql = "DELETE FROM {$this->table} WHERE {$this->pk} = ?";
             return $this->executeSQL($sql, [$id]);
         } catch (Exception $e) {
-            error_log($e->getMessage());
+            Logger::error("DELETE failed on table: {$this->table}", $e);
             return false;
         }
     }
@@ -268,23 +321,12 @@ class CRUD
         $fields ??= '*';
 
         if ($fields === '*') {
-            // Caso especial: selecionar todos os campos
             $validatedFields = '*';
         } else {
-            // Dividir por vírgula e validar cada campo
             $cols = array_map('trim', explode(',', $fields));
             $valid = [];
 
             foreach ($cols as $col) {
-                // Permite:
-                // 1. *
-                // 2. campo
-                // 3. campo.qualificado
-                // 4. campo AS alias
-                // 5. campo.qualificado AS alias
-                // 6. COUNT(*)
-                // 7. SUM(campo)
-                // 8. Funções SQL básicas
                 if ($col === '*') {
                     $valid[] = '*';
                 } elseif (preg_match('/^(\*|[a-zA-Z_][a-zA-Z0-9_\.]*|COUNT\(\*\)|(AVG|SUM|MIN|MAX|COUNT)\([a-zA-Z_][a-zA-Z0-9_\.]*\))(\s+(AS\s+)?[a-zA-Z_][a-zA-Z0-9_]+)?$/i', $col)) {
@@ -300,7 +342,12 @@ class CRUD
             $sql .= " WHERE $where";
         }
 
-        return $this->querySQL($sql, $params);
+        try {
+            return $this->querySQL($sql, $params);
+        } catch (Exception $e) {
+            Logger::error("SELECT failed on table: {$this->table}", $e);
+            return [];
+        }
     }
 
     /**
@@ -342,13 +389,14 @@ class CRUD
                 $callback();
             }
             $db->commit();
+            self::$transactionsCallbacks = [];
             return true;
         } catch (PDOException $e) {
             $db->rollBack();
             $exception = $e;
-            error_log("[CRUD TRANSACTION ERROR] " . $e->getMessage());
+            Logger::error("Transaction failed", $e);
         }
-
+        self::$transactionsCallbacks = [];
         return false;
     }
 
@@ -364,17 +412,13 @@ class CRUD
     {
         try {
             $stmt = self::$pdo->prepare($sql);
-
-            // Bind dos parâmetros com suporte a tipos
             $this->bindParamsWithTypes($stmt, $params);
-
             $stmt->execute();
-
             return preg_match('/LIMIT\s+1/i', $sql)
                 ? ($stmt->fetch() ?: [])
                 : $stmt->fetchAll();
         } catch (Exception $e) {
-            error_log("CRUD query error: " . $e->getMessage());
+            Logger::error("Query execution failed: {$sql}", $e);
             return [];
         }
     }
@@ -405,9 +449,8 @@ class CRUD
             $stmt->execute();
             return $stmt->rowCount();
         } catch (Exception $e) {
-            error_log("CRUD execute error: " . $e->getMessage());
+            Logger::error("Execute SQL failed: {$sql}", $e);
             return false;
         }
     }
-
 }
