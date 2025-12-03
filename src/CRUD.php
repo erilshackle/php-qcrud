@@ -51,7 +51,7 @@ class CRUD
      * - `log_dir`  :   where to output logs (/logs)
      * - `log_file` :   the logs file name (crud-errors)
      * - `max_size` :   limit size (5MB)
-     * - `max_days` :   limit days (7 days retentio)
+     * - `max_days` :   limit days (7 days retention)
      * - `enabled`  :   enable or disable logs (bool)
      * @return void
      */
@@ -76,16 +76,19 @@ class CRUD
      * to ensure consistent database connection across operations.
      *
      * @param PDO|array $connection Either a PDO instance or callback array
+     * @param bool $enableLogs Whether to enable logs or not.
      * @return void
      * @throws CrudException If connection cannot be established
      */
-    public static function registerConnection(PDO|array $connection): void
+    public static function registerConnection(PDO|array $connection, $enableLogs = true): void
     {
         if ($connection instanceof PDO) {
             self::useConnection($connection);
         } else {
             self::$register = $connection;
         }
+
+        self::initLogging(['enable' => true]);
     }
 
     /**
@@ -200,25 +203,49 @@ class CRUD
      * Creates a new record in the database.
      *
      * @param array $data Associative array of column => value pairs
-     * @return int|bool The ID of the created record, or false on failure
+     * @return string|int|null The ID of the created record (string/int),
+     *                         or 0 if inserted without auto-increment ID,
+     *                         or null on error
+     *                         Returns 0 if 0 rows affected or no auto-increment
      * 
      * @example
-     * $id = CRUD::table('users')->create([
-     *     'name' => 'John Doe',
-     *     'email' => 'john@example.com'
-     * ]);
+     * // With auto-increment ID
+     * $id = CRUD::table('users')->create(['name' => 'John']); // "123" or 123
+     * 
+     * // Without auto-increment or 0 rows
+     * $result = CRUD::table('logs')->create(['message' => 'test']); // 0
+     * 
+     * // Error
+     * $result = CRUD::table('invalid')->create($data); // null
      */
-    public function create(array $data): int|bool
+    public function create(array $data): string|int|null
     {
         try {
             $columns = implode(',', array_keys($data));
             $placeholders = implode(',', array_fill(0, count($data), '?'));
             $sql = "INSERT INTO {$this->table} ($columns) VALUES ($placeholders)";
-            $result = $this->executeSQL($sql, array_values($data));
-            return $result > 0 ? (int) self::$pdo->lastInsertId() : false;
+
+            $rowsAffected = $this->executeSQL($sql, array_values($data));
+
+            if ($rowsAffected === 0) {
+                return 0;
+            }
+
+            $lastInsertId = self::$pdo->lastInsertId();
+
+            if (!$lastInsertId || $lastInsertId === '' || $lastInsertId === '0') {
+                return 0;
+            }
+
+            if (ctype_digit($lastInsertId) && $lastInsertId <= PHP_INT_MAX) {
+                return (int) $lastInsertId;
+            }
+
+            // Retorna como string (para bigints)
+            return $lastInsertId;
         } catch (Exception $e) {
             Logger::error("CREATE failed on table: {$this->table}", $e);
-            return false;
+            return null;
         }
     }
 
@@ -227,7 +254,8 @@ class CRUD
      *
      * @param string|int|array|null $id Primary key value(s) or null for all records
      * @param string|null $select Comma-separated list of columns to select
-     * @return array The record(s) as associative array(s)
+     * @return array|null The record(s) as associative array(s) or null on error
+     *                    Returns empty array [] if no records found
      * 
      * @example
      * // Read single record
@@ -236,21 +264,24 @@ class CRUD
      * // Read all records with specific columns
      * $users = CRUD::table('users')->read(null, 'id, name, email');
      */
-    public function read(string|int|array|null $id = null, ?string $select = null): array
+    public function read(string|int|array|null $id = null, ?string $select = null): ?array
     {
-        $cols = $select ? array_map('trim', explode(',', $select)) : ['*'];
-        $valid = array_filter($cols, fn($c) => $c === '*' || preg_match('/^[\w]+(\s+as\s+[\w]+|\s+[\w]+)?$/i', $c));
-        $select = $valid ? implode(', ', $valid) : '*';
-
         try {
+            $cols = $select ? array_map('trim', explode(',', $select)) : ['*'];
+            $valid = array_filter($cols, fn($c) => $c === '*' || preg_match('/^[\w]+(\s+as\s+[\w]+|\s+[\w]+)?$/i', $c));
+            $select = $valid ? implode(', ', $valid) : '*';
+
             if ($id === null) {
                 return $this->querySQL("SELECT $select FROM {$this->table}");
             }
+
             $id = is_array($id) ? $id[$this->pk] ?? 0 : $id;
-            return $this->querySQL("SELECT $select FROM {$this->table} WHERE {$this->pk}=? LIMIT 1", [$id]) ?: [];
+            $result = $this->querySQL("SELECT $select FROM {$this->table} WHERE {$this->pk}=? LIMIT 1", [$id]);
+
+            return $result ?: []; // Retorna array (vazio se não encontrado)
         } catch (Exception $e) {
             Logger::error("READ failed on table: {$this->table}", $e);
-            return [];
+            return null;
         }
     }
 
@@ -259,12 +290,13 @@ class CRUD
      *
      * @param string|int|array $id Primary key value or array containing primary key
      * @param array $data Associative array of column => value pairs to update
-     * @return int|bool Number of affected rows, or false on failure
+     * @return int|null Number of affected rows, or null on error
+     *                  Returns 0 if no rows affected (record not found)
      * 
      * @example
      * CRUD::table('users')->update(123, ['name' => 'Jane Doe']);
      */
-    public function update(string|int|array $id, array $data): int|bool
+    public function update(string|int|array $id, array $data): ?int
     {
         try {
             $set = [];
@@ -277,10 +309,11 @@ class CRUD
             $id = is_array($id) ? $id[$this->pk] ?? 0 : $id;
             $sql = "UPDATE {$this->table} SET $setClause WHERE {$this->pk} = ?";
             $params[] = $id;
+
             return $this->executeSQL($sql, $params);
         } catch (Exception $e) {
             Logger::error("UPDATE failed on table: {$this->table}", $e);
-            return false;
+            return null;
         }
     }
 
@@ -288,20 +321,22 @@ class CRUD
      * Deletes a record from the database.
      *
      * @param string|int|array $id Primary key value or array containing primary key
-     * @return int|bool Number of affected rows, or false on failure
+     * @return int|null Number of affected rows, or null on error
+     *                  Returns 0 if no rows affected (record not found)
      * 
      * @example
      * CRUD::table('users')->delete(123);
      */
-    public function delete(string|int|array $id): int|false
+    public function delete(string|int|array $id): ?int
     {
         try {
             $id = is_array($id) ? ($id[$this->pk] ?? 0) : $id;
             $sql = "DELETE FROM {$this->table} WHERE {$this->pk} = ?";
+
             return $this->executeSQL($sql, [$id]);
         } catch (Exception $e) {
             Logger::error("DELETE failed on table: {$this->table}", $e);
-            return false;
+            return null;
         }
     }
 
@@ -311,42 +346,44 @@ class CRUD
      * @param string|null $where WHERE clause (without the 'WHERE' keyword)
      * @param array $params Parameters for prepared statement
      * @param string|null $fields Comma-separated list of columns to select
-     * @return array Matching records as associative arrays
+     * @return array|null Matching records as associative arrays, or null on error
+     *                    Returns empty array [] if no matching records
      * 
      * @example
      * $activeUsers = CRUD::table('users')->select('status = ? AND age > ?', ['active', 18], 'id, name');
      */
-    public function select(?string $where = null, array $params = [], ?string $fields = '*'): array
+    public function select(?string $where = null, array $params = [], ?string $fields = '*'): ?array
     {
-        $fields ??= '*';
+        try {
+            $fields ??= '*';
 
-        if ($fields === '*') {
-            $validatedFields = '*';
-        } else {
-            $cols = array_map('trim', explode(',', $fields));
-            $valid = [];
+            if ($fields === '*') {
+                $validatedFields = '*';
+            } else {
+                $cols = array_map('trim', explode(',', $fields));
+                $valid = [];
 
-            foreach ($cols as $col) {
-                if ($col === '*') {
-                    $valid[] = '*';
-                } elseif (preg_match('/^(\*|[a-zA-Z_][a-zA-Z0-9_\.]*|COUNT\(\*\)|(AVG|SUM|MIN|MAX|COUNT)\([a-zA-Z_][a-zA-Z0-9_\.]*\))(\s+(AS\s+)?[a-zA-Z_][a-zA-Z0-9_]+)?$/i', $col)) {
-                    $valid[] = $col;
+                foreach ($cols as $col) {
+                    if ($col === '*') {
+                        $valid[] = '*';
+                    } elseif (preg_match('/^(\*|[a-zA-Z_][a-zA-Z0-9_\.]*|COUNT\(\*\)|(AVG|SUM|MIN|MAX|COUNT)\([a-zA-Z_][a-zA-Z0-9_\.]*\))(\s+(AS\s+)?[a-zA-Z_][a-zA-Z0-9_]+)?$/i', $col)) {
+                        $valid[] = $col;
+                    }
                 }
+
+                $validatedFields = $valid ? implode(', ', $valid) : '*';
             }
 
-            $validatedFields = $valid ? implode(', ', $valid) : '*';
-        }
+            $sql = "SELECT $validatedFields FROM {$this->table}";
+            if ($where) {
+                $sql .= " WHERE $where";
+            }
 
-        $sql = "SELECT $validatedFields FROM {$this->table}";
-        if ($where) {
-            $sql .= " WHERE $where";
-        }
-
-        try {
-            return $this->querySQL($sql, $params);
+            $result = $this->querySQL($sql, $params);
+            return $result ?: []; // Retorna array (pode ser vazio)
         } catch (Exception $e) {
             Logger::error("SELECT failed on table: {$this->table}", $e);
-            return [];
+            return null;
         }
     }
 
@@ -361,7 +398,7 @@ class CRUD
      * CRUD::table('profiles')->create([...]);
      * CRUD::executeTrasactions($error);
      */
-    public static function prepareTrasactions(): void
+    public static function prepareTransactions(): void
     {
         self::$onTransaction = true;
     }
@@ -378,7 +415,7 @@ class CRUD
      *     echo "Transaction failed: " . $error->getMessage();
      * }
      */
-    public static function executeTrasactions(?Exception &$exception = null): bool
+    public static function executeTransactions(?Exception &$exception = null): bool
     {
         self::$onTransaction = false;
         $db = self::$pdo;
@@ -405,22 +442,19 @@ class CRUD
      *
      * @param string $sql SQL query
      * @param array $params Query parameters (can be simple values or arrays with 'value' and 'type')
-     * @return array Query results
+     * @return array Query results as associative array
+     * @throws PDOException If query execution fails
      * @internal Used internally for query execution
      */
     private function querySQL(string $sql, array $params = []): array
     {
-        try {
-            $stmt = self::$pdo->prepare($sql);
-            $this->bindParamsWithTypes($stmt, $params);
-            $stmt->execute();
-            return preg_match('/LIMIT\s+1/i', $sql)
-                ? ($stmt->fetch() ?: [])
-                : $stmt->fetchAll();
-        } catch (Exception $e) {
-            Logger::error("Query execution failed: {$sql}", $e);
-            return [];
-        }
+        $stmt = self::$pdo->prepare($sql);
+        $this->bindParamsWithTypes($stmt, $params);
+        $stmt->execute();
+
+        return preg_match('/LIMIT\s+1/i', $sql)
+            ? ($stmt->fetch() ?: [])
+            : $stmt->fetchAll();
     }
 
     /**
@@ -428,10 +462,11 @@ class CRUD
      *
      * @param string $sql SQL query
      * @param array $params Query parameters
-     * @return int|false Number of affected rows of false in exceptions case
+     * @return int Number of affected rows
+     * @throws PDOException If query execution fails
      * @internal Used internally for query execution
      */
-    private function executeSQL(string $sql, array $params = []): int|false
+    private function executeSQL(string $sql, array $params = []): int
     {
         if (self::$onTransaction) {
             self::$transactionsCallbacks[] = function () use ($sql, $params) {
@@ -443,14 +478,9 @@ class CRUD
             return 0;
         }
 
-        try {
-            $stmt = self::$pdo->prepare($sql);
-            $this->bindParamsWithTypes($stmt, $params);
-            $stmt->execute();
-            return $stmt->rowCount();
-        } catch (Exception $e) {
-            Logger::error("Execute SQL failed: {$sql}", $e);
-            return false;
-        }
+        $stmt = self::$pdo->prepare($sql);
+        $this->bindParamsWithTypes($stmt, $params);
+        $stmt->execute();
+        return $stmt->rowCount();
     }
 }
