@@ -1,7 +1,14 @@
 {
     "name": "eril/crud",
-    "description": "Advanced CRUD operations",
-    "keywords": ["crud", "query-builder", "database", "pdo", "orm", "model"],
+    "description": "Advanced CRUD operations and Query Builder with subquery support",
+    "keywords": [
+        "crud",
+        "query-builder",
+        "database",
+        "pdo",
+        "orm",
+        "model"
+    ],
     "type": "library",
     "license": "MIT",
     "authors": [
@@ -21,11 +28,26 @@
         "psr-4": {
             "Eril\\CRUD\\": "src/"
         },
-        "files": ["src/helpers.php"]
+        "files": [
+            "src/helpers.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {
             "Eril\\CRUD\\Tests\\": "tests/"
         }
+    },
+    "bin": [
+        "bin/crud-logs"
+    ],
+    "scripts": {
+        "crud-logs": "@php bin/crud-logs",
+        "crud-logs:tail": "@php bin/crud-logs tail",
+        "crud-logs:clear": "@php bin/crud-logs clear",
+        "crud-logs:stats": "@php bin/crud-logs stats",
+
+        "test": "./vendor/bin/phpunit",
+        "test-unit": "./vendor/bin/phpunit tests/CRUDTest.php",
+        "test-integration": "./vendor/bin/phpunit tests/CRUDIntegrationTest.php"
     }
 }

@@ -1,0 +1,129 @@
+#!/usr/bin/env php
+<?php
+// bin/crud-logs
+
+use Eril\CRUD\Logging\Logger;
+
+require_once __DIR__ . '/../vendor/autoload.php';
+
+
+// Check if running in CLI
+if (PHP_SAPI !== 'cli') {
+    exit('This script must be run from the command line.');
+}
+
+// Initialize logger with defaults
+Logger::init();
+
+// Parse arguments
+$command = $argv[1] ?? 'help';
+$param = $argv[2] ?? null;
+
+switch ($command) {
+    case 'tail':
+        $lines = is_numeric($param) ? (int)$param : 50;
+        tail($lines);
+        break;
+        
+    case 'clear':
+        clear();
+        break;
+        
+    case 'stats':
+        stats();
+        break;
+        
+    case 'help':
+    default:
+        help();
+        break;
+}
+
+/**
+ * Show last N error logs
+ */
+function tail(int $lines): void
+{
+    $logs = Logger::tail($lines);
+    
+    if (empty($logs)) {
+        echo "No errors logged.\n";
+        return;
+    }
+    
+    echo "Last {$lines} errors:\n";
+    echo str_repeat('=', 60) . "\n";
+    
+    foreach ($logs as $log) {
+        echo $log . "\n";
+    }
+}
+
+/**
+ * Clear all logs
+ */
+function clear(): void
+{
+    if (Logger::clear()) {
+        echo "Logs cleared successfully.\n";
+    } else {
+        echo "No logs to clear.\n";
+    }
+}
+
+/**
+ * Show log statistics
+ */
+function stats(): void
+{
+    $stats = Logger::stats();
+    
+    echo "CRUD Error Log Statistics\n";
+    echo str_repeat('-', 30) . "\n";
+    echo "Log file: {$stats['log_file']}\n";
+    echo "Enabled: " . ($stats['enabled'] ? 'Yes' : 'No') . "\n";
+    echo "Max size: {$stats['max_size']}\n";
+    echo "Retention: {$stats['max_days']} days\n";
+    
+    if ($stats['exists']) {
+        echo "\nCurrent log:\n";
+        echo "Size: " . formatBytes($stats['size']) . "\n";
+        echo "Lines: {$stats['lines']}\n";
+        echo "Modified: {$stats['modified']}\n";
+    } else {
+        echo "\nLog file does not exist.\n";
+    }
+}
+
+/**
+ * Show help
+ */
+function help(): void
+{
+    echo "CRUD Logs Manager\n";
+    echo "=================\n\n";
+    echo "Usage: crud-logs <command> [parameter]\n\n";
+    echo "Commands:\n";
+    echo "  tail [lines]    Show last error logs (default: 50)\n";
+    echo "  clear           Clear all logs\n";
+    echo "  stats           Show log statistics\n";
+    echo "  help            Show this help\n\n";
+    echo "Examples:\n";
+    echo "  crud-logs tail 20\n";
+    echo "  crud-logs clear\n";
+    echo "  crud-logs stats\n";
+}
+
+/**
+ * Format bytes to human readable
+ */
+function formatBytes(int $bytes): string
+{
+    $units = ['B', 'KB', 'MB', 'GB'];
+    $bytes = max($bytes, 0);
+    $pow = $bytes ? floor(log($bytes) / log(1024)) : 0;
+    $pow = min($pow, count($units) - 1);
+    $bytes /= pow(1024, $pow);
+    
+    return round($bytes, 2) . ' ' . $units[$pow];
+}
