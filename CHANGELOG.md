@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+
+## [1.1.0] - 2025-12-03
+
+### Added
+- docs: add project documentation and contribution guides
+- feat(cli): add log management tool and CI workflow
+- ci(testing): add test suite and github actions workflow
+- refactor(query): extract where aliases and add global helpers
+- feat(exceptions): add custom crud exception
+- feat(query): implement fluent query builder and refactor api
+- feat(core): add query builder and integrated logging
+
+### Changed
+- refactor(CRUD): simplify transaction return logic
+
 ## [1.0.0] - 2024-01-15
 
 ### Added
