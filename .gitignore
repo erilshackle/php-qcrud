@@ -36,3 +36,4 @@ Thumbs.db
 
 # PHPUnit cache
 .phpunit.cache/
+db.sqlite

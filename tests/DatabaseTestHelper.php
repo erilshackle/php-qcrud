@@ -1,6 +1,6 @@
 <?php
 
-namespace Eril\CRUD\Tests;
+namespace Eril\QCrud\Tests;
 
 use PDO;
 use Exception;

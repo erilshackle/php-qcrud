@@ -1,4 +1,4 @@
-# Eril CRUD - Testes
+# QCrud - Testes
 
 ## Instalação
 

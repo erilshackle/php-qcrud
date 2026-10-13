@@ -1,18 +1,20 @@
 <?php
 
-namespace Eril\CRUD\Tests;
+namespace Eril\QCrud\Tests;
 
 use PDO;
 use PDOStatement;
 use Exception;
 use PHPUnit\Framework\TestCase;
-use Eril\CRUD\CRUD;
-use Eril\CRUD\QueryCrud;
+use Eril\QCrud\CRUD;
+use Eril\QCrud\QueryCrud;
+use Eril\QCrud\Connection\ConnectionManager;
+use Eril\QCrud\Transaction\TransactionManager;
 
 /**
  * Unit tests for CRUD class
  * 
- * @package Eril\CRUD\Tests
+ * @package Eril\QCrud\Tests
  */
 class CRUDTest extends TestCase
 {
@@ -21,40 +23,16 @@ class CRUDTest extends TestCase
 
     protected function setUp(): void
     {
-        // parent::setUp();
-
-        // Mock PDO
         $this->pdoMock = $this->createMock(PDO::class);
         $this->pdoStatementMock = $this->createMock(PDOStatement::class);
-
-        // Clear static properties before each test
-        $reflection = new \ReflectionClass(CRUD::class);
-        $pdoProperty = $reflection->getProperty('pdo');
-        $pdoProperty->setAccessible(true);
-        $pdoProperty->setValue(null, null);
-
-        $registerProperty = $reflection->getProperty('register');
-        $registerProperty->setAccessible(true);
-        $registerProperty->setValue(null, null);
-
-        $transactionsCallbacksProperty = $reflection->getProperty('transactionsCallbacks');
-        $transactionsCallbacksProperty->setAccessible(true);
-        $transactionsCallbacksProperty->setValue(null, []);
-
-        $onTransactionProperty = $reflection->getProperty('onTransaction');
-        $onTransactionProperty->setAccessible(true);
-        $onTransactionProperty->setValue(null, false);
+        ConnectionManager::reset();
+        TransactionManager::reset();
     }
 
     protected function tearDown(): void
     {
-        // parent::tearDown();
-
-        // Clear static properties after each test
-        $reflection = new \ReflectionClass(CRUD::class);
-        $pdoProperty = $reflection->getProperty('pdo');
-        $pdoProperty->setAccessible(true);
-        $pdoProperty->setValue(null, null);
+        ConnectionManager::reset();
+        TransactionManager::reset();
     }
 
     /**
@@ -83,56 +61,32 @@ class CRUDTest extends TestCase
     public function testRegisterConnectionWithPDOInstance(): void
     {
         CRUD::registerConnection($this->pdoMock);
-
-        $reflection = new \ReflectionClass(CRUD::class);
-        $pdoProperty = $reflection->getProperty('pdo');
-        $pdoProperty->setAccessible(true);
-
-        $this->assertSame($this->pdoMock, $pdoProperty->getValue());
+        $this->assertSame($this->pdoMock, ConnectionManager::get());
     }
 
     public function testRegisterConnectionWithCallback(): void
     {
-        $callback = function () {
-            return $this->pdoMock;
-        };
-
         CRUD::registerConnection([$this, 'createPDOMock']);
-
-        $reflection = new \ReflectionClass(CRUD::class);
-        $registerProperty = $reflection->getProperty('register');
-        $registerProperty->setAccessible(true);
-
-        $this->assertIsArray($registerProperty->getValue());
-    }
-
-    public function createPDOMock(): PDO
-    {
-        return $this->pdoMock;
+        $this->assertSame($this->pdoMock, ConnectionManager::get());
     }
 
     public function testUseConnectionWithRegisteredCallback(): void
     {
         CRUD::registerConnection([$this, 'createPDOMock']);
-
-        $reflection = new \ReflectionClass(CRUD::class);
-        $method = $reflection->getMethod('useConnection');
-        $method->setAccessible(true);
-
-        $method->invoke(null);
-
-        $pdoProperty = $reflection->getProperty('pdo');
-        $pdoProperty->setAccessible(true);
-
-        $this->assertSame($this->pdoMock, $pdoProperty->getValue());
+        $crud = new CRUD('users');
+        $this->assertSame($this->pdoMock, ConnectionManager::get());
     }
 
     public function testUseConnectionThrowsExceptionWhenNoConnection(): void
     {
         $this->expectException(Exception::class);
-        $this->expectExceptionMessage('CRUD: No database connection available');
-
+        $this->expectExceptionMessage('No database connection available');
         new CRUD('users', 'id');
+    }
+
+    public function createPDOMock(): PDO
+    {
+        return $this->pdoMock;
     }
 
     // ====================================
@@ -197,7 +151,7 @@ class CRUDTest extends TestCase
     public function testQueryMethodThrowsExceptionWhenNoConnection(): void
     {
         $this->expectException(Exception::class);
-        $this->expectExceptionMessage('CRUD::query(): No database connection available');
+        $this->expectExceptionMessage('No database connection available');
 
         CRUD::query('users');
     }
@@ -627,11 +581,8 @@ class CRUDTest extends TestCase
     {
         CRUD::prepareTransactions();
 
-        $reflection = new \ReflectionClass(CRUD::class);
-        $onTransactionProperty = $reflection->getProperty('onTransaction');
-        $onTransactionProperty->setAccessible(true);
-
-        $this->assertTrue($onTransactionProperty->getValue());
+        $this->assertTrue(TransactionManager::isCollecting());
+        $this->assertSame(0, TransactionManager::pendingCount());
     }
 
     public function testExecuteSQLInTransactionMode(): void
@@ -649,12 +600,7 @@ class CRUDTest extends TestCase
         $this->assertEquals(0, $result);
 
         // Check that callback was added
-        $reflection = new \ReflectionClass(CRUD::class);
-        $callbacksProperty = $reflection->getProperty('transactionsCallbacks');
-        $callbacksProperty->setAccessible(true);
-
-        $callbacks = $callbacksProperty->getValue();
-        $this->assertCount(1, $callbacks);
+        $this->assertSame(1, TransactionManager::pendingCount());
     }
 
     public function testExecuteTransactionsSuccess(): void

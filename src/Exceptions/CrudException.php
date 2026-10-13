@@ -1,6 +1,6 @@
 <?php
 
-namespace Eril\CRUD\Exceptions;
+namespace Eril\QCrud\Exceptions;
 
 use Exception;
 

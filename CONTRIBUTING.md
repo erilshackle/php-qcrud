@@ -1,6 +1,6 @@
-# Contributing to Eril CRUD
+# Contributing to QCrud
 
-We love your input! We want to make contributing to Eril CRUD as easy and transparent as possible.
+We love your input! We want to make contributing to QCrud as easy and transparent as possible.
 
 ## Development Setup
 

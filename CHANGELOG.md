@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- Rename the library to QCrud and the Composer package to `eril/qcrud`.
+- Move PHP namespaces from `Eril\CRUD` to `Eril\QCrud`; update imports accordingly.
+- Keep the main `CRUD` class, global `CRUD` alias, and `CRUD::` API unchanged.
+
 
 ## [1.1.0] - 2025-12-03
 

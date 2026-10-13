@@ -1,11 +1,13 @@
-# Eril CRUD
+# QCrud
 
-[![Latest Stable Version](https://poser.pugx.org/eril/crud/v/stable)](https://packagist.org/packages/eril/crud)
-[![Total Downloads](https://poser.pugx.org/eril/crud/downloads)](https://packagist.org/packages/eril/crud)
-[![License](https://poser.pugx.org/eril/crud/license)](https://packagist.org/packages/eril/crud)
+[![Latest Stable Version](https://poser.pugx.org/eril/qcrud/v/stable)](https://packagist.org/packages/eril/qcrud)
+[![Total Downloads](https://poser.pugx.org/eril/qcrud/downloads)](https://packagist.org/packages/eril/qcrud)
+[![License](https://poser.pugx.org/eril/qcrud/license)](https://packagist.org/packages/eril/qcrud)
 [![PHP Version](https://img.shields.io/badge/php-%5E8.0-blue.svg)](https://php.net)
 
-Eril CRUD is a PDO-based PHP library for common database operations and fluent SQL queries. It includes optional query caching and transaction support.
+QCrud is a PDO-based PHP library for common database operations and fluent SQL queries. It includes optional query caching and transaction support.
+
+The main class remains `CRUD`: import `Eril\QCrud\CRUD` and use `CRUD::table()` or `CRUD::query()`.
 
 ## Features
 
@@ -25,7 +27,7 @@ Eril CRUD is a PDO-based PHP library for common database operations and fluent S
 ## Installation
 
 ```bash
-composer require eril/crud
+composer require eril/qcrud
 ```
 
 ## Quick start
@@ -37,7 +39,7 @@ Register a PDO connection once during application setup:
 
 require_once __DIR__ . '/vendor/autoload.php';
 
-use Eril\CRUD\CRUD;
+use Eril\QCrud\CRUD;
 
 $pdo = new PDO(
     'mysql:host=localhost;dbname=myapp;charset=utf8mb4',
@@ -162,9 +164,6 @@ Cache storage failures fall back to executing the query against the database.
 The Composer autoloader also provides `crud()` and `query()` shortcuts:
 
 ```php
-use function Eril\CRUD\crud;
-use function Eril\CRUD\query;
-
 $user = crud('users')->read(1);
 $activeUsers = query('users')->where('status', 'active')->get();
 ```
@@ -190,9 +189,9 @@ The test suite uses an in-memory SQLite database. The PHP installation used for 
 
 ## License
 
-Eril CRUD is released under the [MIT License](LICENSE).
+QCrud is released under the [MIT License](LICENSE).
 
 ## Support
 
 - [Report an issue](https://github.com/erilshackle/php-crud-class/issues)
-- [Packagist package](https://packagist.org/packages/eril/crud)
+- [Packagist package](https://packagist.org/packages/eril/qcrud)

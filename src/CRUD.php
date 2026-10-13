@@ -1,9 +1,13 @@
 <?php
 
-namespace Eril\CRUD;
+namespace Eril\QCrud;
 
-use Eril\CRUD\Exceptions\CrudException;
-use Eril\CRUD\Logging\Logger;
+use Eril\QCrud\Exceptions\CrudException;
+use Eril\QCrud\Cache\CacheManager;
+use Eril\QCrud\Connection\ConnectionManager;
+use Eril\QCrud\Execution\PdoParameterBinder;
+use Eril\QCrud\Execution\QueryExecutor;
+use Eril\QCrud\Transaction\TransactionManager;
 use Exception;
 use PDO;
 use PDOException;
@@ -15,12 +19,11 @@ use PDOException;
  * 
  * @author erilshk <erilandocarvalho@gmail.com>
  * @license MIT
- * @package Eril\CRUD
+ * @package Eril\QCrud
  * @version 1.0.0
  */
 class CRUD
 {
-    use Traits\ParamBinders;
 
     /** @var string Database table name */
     protected string $table;
@@ -28,37 +31,9 @@ class CRUD
     /** @var string|null Primary key column name */
     protected ?string $pk = null;
 
-    /** @var PDO|null Shared PDO connection instance */
-    private static ?PDO $pdo = null;
-
-    /** @var array|null Callback to create PDO connection */
-    private static ?array $register = null;
-
-    /** @var array Callbacks to execute during transaction */
-    private static array $transactionsCallbacks = [];
-
-    /** @var bool Whether currently in a transaction */
-    private static bool $onTransaction = false;
-
-    /**
-     * Initialize error logging system
-     * Call this method during bootstrap if you want to customize logging
-     * 
-     * @param array{
-     *  log_dir:string, log_file:string, max_size:int, max_days:int, enabled:bool
-     * } $config Logger configuration
-     * 
-     * - `log_dir`  :   where to output logs (/logs)
-     * - `log_file` :   the logs file name (crud-errors)
-     * - `max_size` :   limit size (5MB)
-     * - `max_days` :   limit days (7 days retention)
-     * - `enabled`  :   enable or disable logs (bool)
-     * @return void
-     */
-    public static function initLogging(array $config = []): void
-    {
-        Logger::init($config);
-    }
+    private bool $cacheEnabled = false;
+    private static ?QueryExecutor $executor = null;
+    private static ?PdoParameterBinder $binder = null;
 
     /**
      * Registers how the PDO connection should be created or used by the class.
@@ -76,19 +51,12 @@ class CRUD
      * to ensure consistent database connection across operations.
      *
      * @param PDO|array $connection Either a PDO instance or callback array
-     * @param bool $enableLogs Whether to enable logs or not.
      * @return void
      * @throws CrudException If connection cannot be established
      */
-    public static function registerConnection(PDO|array $connection, $enableLogs = true): void
+    public static function registerConnection(PDO|array $connection): void
     {
-        if ($connection instanceof PDO) {
-            self::useConnection($connection);
-        } else {
-            self::$register = $connection;
-        }
-
-        self::initLogging(['enable' => true]);
+        ConnectionManager::register($connection);
     }
 
     /**
@@ -101,17 +69,39 @@ class CRUD
      */
     protected static function useConnection(?PDO $pdo = null): void
     {
-        try {
-            if ($pdo !== null) {
-                self::$pdo = $pdo;
-            } elseif (self::$register !== null) {
-                self::$pdo = call_user_func(self::$register);
-                self::$register = null;
-            }
-        } catch (Exception $e) {
-            Logger::error("Connection error", $e);
-            throw new CrudException("Unknown connection error: " . $e->getMessage());
-        }
+        ConnectionManager::get($pdo);
+    }
+
+    public static function configureCache(array $config): void
+    {
+        CacheManager::configure($config);
+    }
+
+    public static function clearCache(): void
+    {
+        CacheManager::clear();
+    }
+
+    public static function transaction(callable $callback): mixed
+    {
+        return TransactionManager::transaction(ConnectionManager::get(), $callback);
+    }
+
+    public function useCache(bool $enabled = true): self
+    {
+        if ($enabled) CacheManager::assertConfigured();
+        $this->cacheEnabled = $enabled;
+        return $this;
+    }
+
+    private static function executor(): QueryExecutor
+    {
+        return self::$executor ??= new QueryExecutor();
+    }
+
+    private static function binder(): PdoParameterBinder
+    {
+        return self::$binder ??= new PdoParameterBinder();
     }
 
     /**
@@ -129,14 +119,9 @@ class CRUD
             $this->pk = $primaryKey;
             self::useConnection($pdo);
 
-            if (self::$pdo === null) {
-                throw new CrudException("CRUD: No database connection available");
-            }
         } catch (PDOException $exception) {
-            Logger::error("PDO Exception in constructor", $exception);
             throw $exception;
         } catch (Exception $e) {
-            Logger::error("General Exception in constructor", $e);
             throw $e;
         }
     }
@@ -148,7 +133,7 @@ class CRUD
      */
     protected function pdo(): ?PDO
     {
-        return self::$pdo;
+        return ConnectionManager::get();
     }
 
     /**
@@ -183,8 +168,8 @@ class CRUD
     public static function query(string $table, ?string $as = null): QueryCrud
     {
         self::useConnection();
-        if (!self::$pdo) {
-            Logger::error("No database connection available for query");
+        $pdo = ConnectionManager::get();
+        if (!$pdo) {
             throw new CrudException("CRUD::query(): No database connection available");
         }
 
@@ -192,9 +177,8 @@ class CRUD
         $table = preg_replace('/(.+)\s*AS\s+(.+)/', '$1 $2', $table);
 
         try {
-            return new QueryCrud($table, self::$pdo);
+            return new QueryCrud($table, $pdo);
         } catch (Exception $e) {
-            Logger::error("Failed to create QueryCrud", $e);
             throw new CrudException("Failed to create QueryCrud: " . $e->getMessage(), 0, $e);
         }
     }
@@ -231,7 +215,7 @@ class CRUD
                 return 0;
             }
 
-            $lastInsertId = self::$pdo->lastInsertId();
+            $lastInsertId = ConnectionManager::get()->lastInsertId();
 
             if (!$lastInsertId || $lastInsertId === '' || $lastInsertId === '0') {
                 return 0;
@@ -244,7 +228,6 @@ class CRUD
             // Retorna como string (para bigints)
             return $lastInsertId;
         } catch (Exception $e) {
-            Logger::error("CREATE failed on table: {$this->table}", $e);
             return null;
         }
     }
@@ -272,15 +255,14 @@ class CRUD
             $select = $valid ? implode(', ', $valid) : '*';
 
             if ($id === null) {
-                return $this->querySQL("SELECT $select FROM {$this->table}");
+                return $this->querySQL("SELECT $select FROM {$this->table}", [], 'rows');
             }
 
             $id = is_array($id) ? $id[$this->pk] ?? 0 : $id;
-            $result = $this->querySQL("SELECT $select FROM {$this->table} WHERE {$this->pk}=? LIMIT 1", [$id]);
+            $result = $this->querySQL("SELECT $select FROM {$this->table} WHERE {$this->pk}=? LIMIT 1", [$id], 'row');
 
             return $result ?: []; // Retorna array (vazio se não encontrado)
         } catch (Exception $e) {
-            Logger::error("READ failed on table: {$this->table}", $e);
             return null;
         }
     }
@@ -312,7 +294,6 @@ class CRUD
 
             return $this->executeSQL($sql, $params);
         } catch (Exception $e) {
-            Logger::error("UPDATE failed on table: {$this->table}", $e);
             return null;
         }
     }
@@ -335,7 +316,6 @@ class CRUD
 
             return $this->executeSQL($sql, [$id]);
         } catch (Exception $e) {
-            Logger::error("DELETE failed on table: {$this->table}", $e);
             return null;
         }
     }
@@ -379,10 +359,9 @@ class CRUD
                 $sql .= " WHERE $where";
             }
 
-            $result = $this->querySQL($sql, $params);
+            $result = $this->querySQL($sql, $params, 'rows');
             return $result ?: []; // Retorna array (pode ser vazio)
         } catch (Exception $e) {
-            Logger::error("SELECT failed on table: {$this->table}", $e);
             return null;
         }
     }
@@ -400,7 +379,7 @@ class CRUD
      */
     public static function prepareTransactions(): void
     {
-        self::$onTransaction = true;
+        TransactionManager::prepare();
     }
 
     /**
@@ -417,24 +396,12 @@ class CRUD
      */
     public static function executeTransactions(?Exception &$exception = null): bool
     {
-        self::$onTransaction = false;
-        $db = self::$pdo;
-        $result = false;
-
         try {
-            $db->beginTransaction();
-            foreach (self::$transactionsCallbacks as $callback) {
-                $callback();
-            }
-            $db->commit();
-            $result = true;
-        } catch (PDOException $e) {
-            $db->rollBack();
-            $exception = $e;
-            Logger::error("Transaction failed", $e);
+            return TransactionManager::execute(ConnectionManager::get(), $exception);
+        } catch (\Throwable $failure) {
+            $exception = $failure instanceof Exception ? $failure : new \RuntimeException($failure->getMessage(), 0, $failure);
+            return false;
         }
-        self::$transactionsCallbacks = [];
-        return $result;
     }
 
     /**
@@ -446,15 +413,12 @@ class CRUD
      * @throws PDOException If query execution fails
      * @internal Used internally for query execution
      */
-    private function querySQL(string $sql, array $params = []): array
+    private function querySQL(string $sql, array $params = [], string $mode = 'rows'): array
     {
-        $stmt = self::$pdo->prepare($sql);
-        $this->bindParamsWithTypes($stmt, $params);
-        $stmt->execute();
-
-        return preg_match('/LIMIT\s+1/i', $sql)
-            ? ($stmt->fetch() ?: [])
-            : $stmt->fetchAll();
+        $pdo = ConnectionManager::get();
+        return $mode === 'row'
+            ? self::executor()->fetchOne($pdo, $sql, $params, $this->cacheEnabled)
+            : self::executor()->fetchAll($pdo, $sql, $params, $this->cacheEnabled);
     }
 
     /**
@@ -468,19 +432,19 @@ class CRUD
      */
     private function executeSQL(string $sql, array $params = []): int
     {
-        if (self::$onTransaction) {
-            self::$transactionsCallbacks[] = function () use ($sql, $params) {
-                $stmt = self::$pdo->prepare($sql);
-                $this->bindParamsWithTypes($stmt, $params);
-                $stmt->execute();
-                return $stmt->rowCount();
-            };
+        if (TransactionManager::queue(function () use ($sql, $params): int {
+            $statement = ConnectionManager::get()->prepare($sql);
+            self::binder()->bind($statement, $params);
+            $statement->execute();
+            return $statement->rowCount();
+        })) {
             return 0;
         }
-
-        $stmt = self::$pdo->prepare($sql);
-        $this->bindParamsWithTypes($stmt, $params);
-        $stmt->execute();
-        return $stmt->rowCount();
+        $statement = ConnectionManager::get()->prepare($sql);
+        self::binder()->bind($statement, $params);
+        $statement->execute();
+        $count = $statement->rowCount();
+        if ($count > 0) CacheManager::clear();
+        return $count;
     }
 }

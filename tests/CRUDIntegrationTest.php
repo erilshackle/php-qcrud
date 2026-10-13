@@ -1,17 +1,17 @@
 <?php
 
-namespace Eril\CRUD\Tests;
+namespace Eril\QCrud\Tests;
 
 use PDO;
 use Exception;
 use PHPUnit\Framework\TestCase;
-use Eril\CRUD\CRUD;
-use Eril\CRUD\QueryCrud;
+use Eril\QCrud\CRUD;
+use Eril\QCrud\QueryCrud;
 
 /**
  * Integration tests for CRUD class with real SQLite database
  * 
- * @package Eril\CRUD\Tests
+ * @package Eril\QCrud\Tests
  */
 class CRUDIntegrationTest extends TestCase
 {

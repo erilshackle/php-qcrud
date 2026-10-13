@@ -1,7 +1,8 @@
 {
-    "name": "eril/crud",
-    "description": "Advanced CRUD operations and Query Builder with subquery support",
+    "name": "eril/qcrud",
+    "description": "QCrud: advanced CRUD operations and Query Builder with subquery support",
     "keywords": [
+        "qcrud",
         "crud",
         "query-builder",
         "database",
@@ -26,7 +27,7 @@
     },
     "autoload": {
         "psr-4": {
-            "Eril\\CRUD\\": "src/"
+            "Eril\\QCrud\\": "src/"
         },
         "files": [
             "src/helpers.php"
@@ -34,7 +35,7 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "Eril\\CRUD\\Tests\\": "tests/"
+            "Eril\\QCrud\\Tests\\": "tests/"
         }
     },
     "scripts": {
