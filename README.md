@@ -1,13 +1,21 @@
 # QCrud
 
+QCrud is a PDO-based PHP library for common database operations and fluent SQL queries. It includes optional query caching and transaction support.
+
 [![Latest Stable Version](https://poser.pugx.org/eril/qcrud/v/stable)](https://packagist.org/packages/eril/qcrud)
 [![Total Downloads](https://poser.pugx.org/eril/qcrud/downloads)](https://packagist.org/packages/eril/qcrud)
 [![License](https://poser.pugx.org/eril/qcrud/license)](https://packagist.org/packages/eril/qcrud)
 [![PHP Version](https://img.shields.io/badge/php-%5E8.0-blue.svg)](https://php.net)
 
-QCrud is a PDO-based PHP library for common database operations and fluent SQL queries. It includes optional query caching and transaction support.
+## Documentation
 
-The main class remains `CRUD`: import `Eril\QCrud\CRUD` and use `CRUD::table()` or `CRUD::query()`.
+See the [usage documentation](docs/README.md) for concise guides:
+
+- [Getting started](docs/getting-started.md)
+- [CRUD operations](docs/crud.md)
+- [Query builder](docs/query-builder.md)
+- [Transactions](docs/transactions.md)
+- [Caching](docs/caching.md)
 
 ## Features
 
@@ -15,7 +23,7 @@ The main class remains `CRUD`: import `Eril\QCrud\CRUD` and use `CRUD::table()` 
 - Query builder with conditions, joins, subqueries, aggregates, pagination, and unions
 - Prepared statements for bound values
 - Optional file or APCu query cache
-- Table-aware cache invalidation
+- Automatic cache invalidation after writes
 - Callback-based and queued transactions
 
 ## Requirements
@@ -131,20 +139,9 @@ $users = CRUD::query('users')
 
 The file cache creates the configured directory if needed; the PHP process must be able to write to it. To use APCu, set `'driver' => 'apcu'` and install/enable the APCu extension. Use a distinct namespace for each application or environment that shares a cache store.
 
-Writes made through this library invalidate cached queries that depend on the changed table. Query dependencies are collected from the main table, joins, unions, and builder subqueries. If a raw expression reads another table, declare that dependency:
+Successful writes that affect rows and successful transaction commits invalidate the current cache namespace. For writes performed outside the library, use `clearCache()`:
 
 ```php
-$users = CRUD::query('users')
-    ->select('users.id, (SELECT bio FROM profiles WHERE profiles.user_id = users.id) AS bio')
-    ->cacheDependsOn('profiles')
-    ->useCache()
-    ->get();
-```
-
-For writes performed outside the library, invalidate only the affected table. Use `clearCache()` to invalidate the current cache namespace:
-
-```php
-CRUD::invalidateCacheFor('users');
 CRUD::clearCache();
 ```
 
@@ -172,8 +169,8 @@ $activeUsers = query('users')->where('status', 'active')->get();
 
 | Entry point | Main methods |
 | --- | --- |
-| `CRUD` | `registerConnection()`, `table()`, `query()`, `configureCache()`, `clearCache()`, `invalidateCacheFor()`, `transaction()` |
-| CRUD instance | `create()`, `read()`, `update()`, `delete()`, `select()`, `useCache()`, `cacheDependsOn()` |
+| `CRUD` | `registerConnection()`, `table()`, `query()`, `configureCache()`, `clearCache()`, `transaction()` |
+| CRUD instance | `create()`, `read()`, `update()`, `delete()`, `select()`, `useCache()` |
 | Query builder | `select()`, `where()`, `join()`, `groupBy()`, `having()`, `orderBy()`, `limit()`, `paginate()`, `union()`, `get()`, `first()`, `exists()`, aggregates |
 
 ## Tests
