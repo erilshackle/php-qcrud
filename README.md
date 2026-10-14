@@ -173,17 +173,6 @@ $activeUsers = query('users')->where('status', 'active')->get();
 | CRUD instance | `create()`, `read()`, `update()`, `delete()`, `select()`, `useCache()` |
 | Query builder | `select()`, `where()`, `join()`, `groupBy()`, `having()`, `orderBy()`, `limit()`, `paginate()`, `union()`, `get()`, `first()`, `exists()`, aggregates |
 
-## Tests
-
-Install the development dependencies and run PHPUnit:
-
-```bash
-composer install
-composer test
-```
-
-The test suite uses an in-memory SQLite database. The PHP installation used for tests must include the PDO SQLite driver.
-
 ## License
 
 QCrud is released under the [MIT License](LICENSE).
